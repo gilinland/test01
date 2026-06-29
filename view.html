@@ -1,0 +1,914 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>스마트 주간업무 보고서 자동 취합기 📑</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Google Fonts for Public Service style -->
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;700;900&family=Pretendard:wght@300;400;600;700&display=swap" rel="stylesheet">
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <!-- JSZip CDN for creating .hwpx zip architecture -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+
+  <style>
+    body {
+      font-family: 'Pretendard', 'Noto Sans KR', sans-serif;
+      background-color: #f1f5f9;
+    }
+    
+    /* Simulate HWP Fonts */
+    .font-hyheadline {
+      font-family: 'HY헤드라인M', 'HYHeadLine-Medium', 'Pretendard', sans-serif;
+    }
+    .font-shinmyeongjo {
+      font-family: '한컴 신명조', 'Shin Myeongjo', 'Batang', 'Gowun Batang', serif;
+    }
+    .font-gyeonmyeongjo {
+      font-family: '한컴 견명조', 'Gyeon Myeongjo', 'Batang', 'Gowun Batang', serif;
+    }
+
+    /* A4 Paper Shadow & Standard Margins (Top/Bottom 15mm, Left/Right 20mm) */
+    .a4-paper {
+      width: 210mm;
+      height: 297mm;
+      padding: 15mm 20mm 15mm 20mm; 
+      background: #ffffff;
+      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+      box-sizing: border-box;
+      /* 단어 단위 자동 개행(keep-all) 및 줄바꿈 설정 */
+      word-break: keep-all;
+      overflow-wrap: break-word;
+      white-space: normal;
+      position: relative;
+    }
+
+    /* 화면 스크롤 제거를 위한 레이아웃 조율 */
+    .app-height {
+      height: calc(100vh - 120px);
+    }
+
+    /* 기호 별 내어쓰기(Hanging Indent) 스타일 정의 */
+    .indent-headline {
+      padding-left: 0;
+      text-indent: 0;
+      word-break: keep-all;
+    }
+    
+    /* ○ 기호: 앞에 띄어쓰기 없이 바로 시작 (0칸), 다음 줄로 넘어가면 기호 뒤 첫 글자(1.5em)에 수직 위치 고정 */
+    .indent-circle {
+      padding-left: 1.5em; /* 내어쓰기 기준 폭 */
+      text-indent: -1.5em; /* 첫 줄 당기기 (앞에 0칸 공백) */
+      word-break: keep-all;
+    }
+    
+    /* - 기호: 앞에 2칸 비우고 시작(2.0em), 다음 줄로 넘어가면 기호 뒤 첫 글자(3.5em)에 수직 위치 고정 */
+    .indent-dash {
+      padding-left: 3.5em; /* 내어쓰기 기준 폭 */
+      text-indent: -1.5em; /* 첫 줄 당기기 (앞에 2칸 공백 유지) */
+      word-break: keep-all;
+    }
+
+    /* * 기호: 앞에 3칸 비우고 시작(3.0em), 다음 줄로 넘어가면 기호 뒤 첫 글자(4.5em)에 수직 위치 고정 */
+    .indent-asterisk {
+      padding-left: 4.5em; /* 내어쓰기 기준 폭 */
+      text-indent: -1.5em; /* 첫 줄 당기기 (앞에 3칸 공백 유지) */
+      word-break: keep-all;
+    }
+
+    /* A4 축소 핏팅 래퍼 */
+    .a4-scale-wrapper {
+      transform-origin: top center;
+      transition: transform 0.2s ease-out;
+    }
+  </style>
+</head>
+<body class="text-slate-800 antialiased overflow-hidden h-screen flex flex-col">
+
+  <!-- Top G-Gov Navigation bar -->
+  <nav class="bg-slate-900 text-slate-300 text-xs py-2.5 px-6 flex justify-between items-center border-b border-slate-800 shrink-0 z-50">
+    <div class="flex items-center gap-3">
+      <span class="inline-block bg-sky-500 text-white font-extrabold text-[10px] px-2 py-0.5 rounded">정부 3.0</span>
+      <span class="font-bold text-slate-100 flex items-center gap-1">
+        <i data-lucide="shield-check" class="w-3.5 h-3.5 text-sky-400"></i> 행정업무 간소화 스마트 워크스페이스
+      </span>
+    </div>
+    <div class="flex items-center gap-4 text-slate-400">
+      <span class="hidden md:inline font-semibold text-rose-400">★ 1화면 최적화 모드 탑재</span>
+      <span class="text-slate-700">|</span>
+      <span id="live-timer" class="font-medium">2026. 06. 29. (월)</span>
+    </div>
+  </nav>
+
+  <!-- Main Split Space -->
+  <main class="flex-1 max-w-7xl w-full mx-auto p-4 grid grid-cols-1 xl:grid-cols-12 gap-4 items-stretch overflow-hidden">
+    
+    <!-- Left Area: Input & Analysis Control (5 Cols) - Scrollable inside -->
+    <section class="xl:col-span-5 flex flex-col gap-4 overflow-y-auto pr-1 app-height">
+      
+      <!-- 1. Report Title Banner -->
+      <div class="bg-gradient-to-r from-slate-800 via-indigo-900 to-slate-900 rounded-2xl p-4 text-white shadow-md shrink-0">
+        <div class="space-y-1">
+          <div class="inline-flex items-center gap-1.5 px-2.5 py-0.5 bg-sky-500/20 text-sky-300 rounded-full text-[11px] font-semibold">
+            <i data-lucide="zap" class="w-3 h-3"></i> 스마트 행정혁신 도구
+          </div>
+          <h1 class="text-lg font-black tracking-tight">
+            주간업무보고 자간 피팅기 (1화면 맞춤)
+          </h1>
+          <p class="text-[11px] text-slate-300">
+            어절 단위 <b class="text-amber-300">자동 줄바꿈(keep-all)</b> 및 정밀 <b class="text-amber-300">내어쓰기 정렬</b> 완비.
+          </p>
+        </div>
+        <div class="flex gap-2 mt-3">
+          <button onclick="loadSampleData()" class="flex-1 bg-slate-700 hover:bg-slate-600 text-slate-100 text-[11px] font-bold py-1.5 rounded-lg transition-all border border-slate-600 flex items-center justify-center gap-1">
+            <i data-lucide="database" class="w-3.5 h-3.5 text-teal-400"></i> 샘플 호출
+          </button>
+          <button onclick="clearAllData()" class="flex-1 bg-slate-800 hover:bg-red-950 text-rose-300 text-[11px] font-bold py-1.5 rounded-lg transition-all border border-rose-950 flex items-center justify-center gap-1">
+            <i data-lucide="trash-2" class="w-3.5 h-3.5"></i> 초기화
+          </button>
+        </div>
+      </div>
+
+      <!-- 2. Report Metadata -->
+      <div class="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm space-y-3 shrink-0">
+        <h2 class="text-xs font-bold text-slate-900 flex items-center gap-1.5 border-b border-slate-100 pb-2">
+          <i data-lucide="file-text" class="text-indigo-500 w-4 h-4"></i>
+          <span>1. 보고서 정보 설정</span>
+        </h2>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="text-[10px] font-bold text-slate-400 block mb-0.5">작성 부서</label>
+            <input id="meta-dept" type="text" value="운영지원과 기획팀" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-xs font-semibold text-slate-700 focus:outline-none focus:ring-1 focus:ring-indigo-300">
+          </div>
+          <div>
+            <label class="text-[10px] font-bold text-slate-400 block mb-0.5">보고 주차</label>
+            <input id="meta-week" type="text" value="2026년 7월 1주차" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-xs font-semibold text-slate-700 focus:outline-none focus:ring-1 focus:ring-indigo-300">
+          </div>
+        </div>
+      </div>
+
+      <!-- 3. Bulk Smart Parser -->
+      <div class="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm space-y-3 shrink-0">
+        <div class="flex justify-between items-center border-b border-slate-100 pb-2">
+          <h2 class="text-xs font-bold text-slate-900 flex items-center gap-1.5">
+            <i data-lucide="clipboard-paste" class="text-teal-500 w-4 h-4"></i>
+            <span>2. 메신저 제출 텍스트 일괄 파싱 취합</span>
+          </h2>
+          <span class="text-[9px] bg-teal-50 text-teal-700 border border-teal-100 rounded px-1.5 py-0.2 font-bold">인공지능 분석형</span>
+        </div>
+        
+        <p class="text-[11px] text-slate-500 leading-normal">
+          팀원들이 제출한 실적 텍스트를 붙여넣으세요. 기호(`<`,`○`,`-`,`*`)를 자동 감지합니다.
+        </p>
+
+        <div>
+          <textarea id="bulk-paste-area" rows="4" placeholder="< 기획예산팀 기안과제 >
+○ 하반기 소모성 자재 조달 조기 입찰 시행안 마련
+- 서무 서식 보정이 불필요하여 기안자 만족도를 대단히 높일 수 있으며 부서 내 반복 수작업을 전면 제거함" class="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs focus:outline-none focus:ring-1 focus:ring-teal-300 font-mono leading-relaxed"></textarea>
+        </div>
+
+        <div class="flex gap-2">
+          <div class="w-1/2">
+            <select id="bulk-author" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 text-xs focus:ring-1 focus:ring-teal-300">
+              <option value="홍길동 주무관">👤 홍길동 주무관</option>
+              <option value="이영희 주무관" selected>👤 이영희 주무관</option>
+              <option value="김철수 주무관">👤 김철수 주무관</option>
+              <option value="박혜원 팀장">👤 박혜원 팀장</option>
+            </select>
+          </div>
+          <div class="w-1/2">
+            <button onclick="parseAndAddBulkText()" class="w-full bg-teal-500 hover:bg-teal-600 text-white font-bold text-xs py-1.5 rounded-lg transition-all shadow-sm flex items-center justify-center gap-1">
+              <i data-lucide="wand-2" class="w-3.5 h-3.5"></i> 스마트 취합
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 4. Manual Detailed Input Area -->
+      <div class="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm space-y-3 shrink-0">
+        <h2 class="text-xs font-bold text-slate-900 flex items-center gap-1.5 border-b border-slate-100 pb-2">
+          <i data-lucide="edit-3" class="text-amber-500 w-4 h-4"></i>
+          <span>3. 개별 항목 미세 추가/수정</span>
+        </h2>
+
+        <div class="space-y-2">
+          <div class="grid grid-cols-2 gap-2">
+            <div>
+              <label class="text-[10px] text-slate-400 font-bold block mb-0.5">서식 분류</label>
+              <select id="form-type" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-amber-300">
+                <option value="headline">&lt; 대업무 &gt; (16pt, 헤드라인, 위10)</option>
+                <option value="circle">○ 중업무 (15pt, 신명조, 위5, 0칸공백)</option>
+                <option value="dash" selected>- 소내용 (15pt, 신명조, 위3, 2칸공백)</option>
+                <option value="asterisk">* 참고 (13pt, 견명조, 위0, 3칸공백)</option>
+              </select>
+            </div>
+            <div>
+              <label class="text-[10px] text-slate-400 font-bold block mb-0.5">제출자</label>
+              <input id="form-member" type="text" value="홍길동 주무관" class="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-xs text-slate-700 focus:outline-none">
+            </div>
+          </div>
+
+          <div>
+            <textarea id="form-text" rows="2" placeholder="보고 내용을 입력하세요." class="w-full bg-slate-50 border border-slate-200 rounded-lg p-2 text-xs focus:outline-none focus:ring-1 focus:ring-amber-300"></textarea>
+          </div>
+
+          <button onclick="addSingleRecord()" class="w-full bg-amber-400 hover:bg-amber-500 text-slate-900 font-bold text-xs py-1.5 rounded-lg transition-all flex items-center justify-center gap-1">
+            <i data-lucide="plus" class="w-3.5 h-3.5"></i> 기록 추가
+          </button>
+        </div>
+      </div>
+
+      <!-- 5. Interactive Spacing Simulator Control Panel -->
+      <div class="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm space-y-3 shrink-0">
+        <h2 class="text-xs font-bold text-slate-900 flex items-center gap-1.5 border-b border-slate-100 pb-2">
+          <i data-lucide="sliders" class="text-indigo-500 w-4 h-4"></i>
+          <span>4. 한 줄 맞춤 자간 최적화 설정</span>
+        </h2>
+        <div class="space-y-2">
+          <div class="flex justify-between text-xs font-semibold">
+            <span class="text-slate-500">허용 최대 자간 압축률:</span>
+            <span id="label-compress-limit" class="text-indigo-600 font-bold">-10%</span>
+          </div>
+          <input id="slider-compress-limit" type="range" min="0" max="20" value="10" oninput="updateCompressLimit()" class="w-full accent-indigo-600">
+          <p class="text-[10px] text-slate-400 leading-normal">
+            * 자간이 <b>-10%</b> 이내로 들어오는 어절은 단어가 잘리지 않는 범위에서 자동으로 자간을 좁혀 깔끔하게 1줄 피팅 처리를 수행합니다.
+          </p>
+        </div>
+      </div>
+
+    </section>
+
+    <!-- Right Area: Simulated A4 Document Preview (7 Cols) -->
+    <section class="xl:col-span-7 flex flex-col items-center app-height overflow-hidden">
+      
+      <!-- Export Tool Bar -->
+      <div class="w-full bg-white rounded-t-2xl border-t border-x border-slate-200 p-3 flex justify-between items-center shrink-0">
+        <div class="flex items-center gap-2 text-xs font-bold text-slate-600">
+          <span class="w-2.5 h-2.5 rounded-full bg-indigo-500 animate-pulse"></span>
+          <span>A4 여백 규격 맞춤 (위아래 15, 좌우 20)</span>
+        </div>
+        <div class="flex gap-1.5">
+          <button onclick="exportToHWPX()" class="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold px-3 py-1.5 rounded-lg transition-all flex items-center gap-1 shadow-sm">
+            <i data-lucide="download-cloud" class="w-3.5 h-3.5"></i> HWPX
+          </button>
+          <button onclick="exportToHML()" class="bg-sky-500 hover:bg-sky-600 text-white text-xs font-bold px-3 py-1.5 rounded-lg transition-all flex items-center gap-1 shadow-sm">
+            <i data-lucide="file-code" class="w-3.5 h-3.5"></i> HML
+          </button>
+          <button onclick="copyToClipboardFormatted()" class="bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-bold px-3 py-1.5 rounded-lg transition-all flex items-center gap-1 shadow-sm">
+            <i data-lucide="copy" class="w-3.5 h-3.5"></i> 한글 전용 복사
+          </button>
+        </div>
+      </div>
+
+      <!-- Live Formatting Analysis Alert Panel -->
+      <div class="w-full bg-slate-100 border-x border-slate-200 p-2 text-[10px] shrink-0">
+        <div class="font-bold text-slate-700 mb-1 flex items-center gap-1">
+          <i data-lucide="calculator" class="w-3.5 h-3.5 text-indigo-500"></i> 단어 단위 자간 최적화 리포팅:
+        </div>
+        <div id="fitting-report-container" class="flex flex-wrap gap-2 text-slate-500 max-h-12 overflow-y-auto">
+          <!-- Live updates go here -->
+        </div>
+      </div>
+
+      <!-- Virtual A4 Container with Scale Fitting Controller -->
+      <div id="a4-container-frame" class="w-full flex-1 bg-slate-200 p-4 border border-slate-200 rounded-b-2xl overflow-hidden flex justify-center items-start">
+        
+        <div class="a4-scale-wrapper" id="a4-scale-wrapper">
+          
+          <!-- HWP Document Mockup -->
+          <article class="a4-paper shadow-2xl shrink-0" id="hwp-document">
+            
+            <!-- Watermark / Background subtle grid of the page -->
+            <div class="absolute inset-0 border-2 border-slate-200 pointer-events-none rounded"></div>
+
+            <!-- Page Header Info -->
+            <div class="border-b-2 border-double border-slate-900 pb-2 mb-6 flex justify-between items-end">
+              <div>
+                <span class="font-hyheadline text-slate-400 text-xs">주간 업무 효율화 통합 보고</span>
+              </div>
+              <div class="text-right">
+                <span class="font-bold text-xs text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded" id="doc-meta-header">운영지원과 기획팀</span>
+              </div>
+            </div>
+
+            <!-- Main Center Title -->
+            <div class="text-center my-4">
+              <h2 class="font-hyheadline text-xl font-bold tracking-widest text-slate-900" id="doc-main-title">
+                2026년 7월 1주차 주간업무보고
+              </h2>
+            </div>
+
+            <!-- Content Area mapping the layout specifications -->
+            <div id="doc-content-container" class="space-y-0 leading-relaxed select-text">
+              <!-- Dynamically populated items with HWP-like margins and spacing applied -->
+            </div>
+
+            <!-- Hidden Ruler Guide (Adjusted to Left/Right 20mm) -->
+            <div class="absolute top-0 bottom-0 left-[20mm] right-[20mm] border-x border-dashed border-sky-100/30 pointer-events-none"></div>
+
+          </article>
+
+        </div>
+      </div>
+
+    </section>
+
+  </main>
+
+  <!-- Notification Popup instead of browser alert -->
+  <div id="notice-toast" class="fixed bottom-6 right-6 z-50 transform translate-y-24 opacity-0 transition-all duration-300 bg-slate-900 text-white rounded-2xl px-5 py-3.5 shadow-2xl flex items-center gap-3 max-w-sm">
+    <div class="w-8 h-8 rounded-full bg-sky-500 flex items-center justify-center shrink-0">
+      <i data-lucide="info" class="w-4.5 h-4.5 text-white"></i>
+    </div>
+    <div class="flex-1">
+      <p id="notice-toast-message" class="text-xs font-semibold text-slate-200">데이터가 정상 취합되었습니다!</p>
+    </div>
+  </div>
+
+  <script>
+    // System Constants matching HWP styles and margins
+    const HWP_MARGINS = {
+      headline: { size: 16, weight: 'font-bold', color: 'text-slate-900', top: 'mt-[10pt]', font: 'font-hyheadline', indentClass: 'indent-headline' },
+      circle: { size: 15, weight: 'font-normal', color: 'text-slate-800', top: 'mt-[5pt]', font: 'font-shinmyeongjo', indentClass: 'indent-circle' },
+      dash: { size: 15, weight: 'font-normal', color: 'text-slate-700', top: 'mt-[3pt]', font: 'font-shinmyeongjo', indentClass: 'indent-dash' },
+      asterisk: { size: 13, weight: 'font-normal', color: 'text-slate-500', top: 'mt-[0pt]', font: 'font-gyeonmyeongjo', indentClass: 'indent-asterisk' }
+    };
+
+    // State Variables
+    let state = {
+      compressLimit: 10, // Max letter compress allowed in percent (default -10%)
+      records: [
+        { id: 1, type: 'headline', author: '박혜원 팀장', text: '< 행정 효율성 극대화 스마트 지침 >' },
+        { id: 2, type: 'circle', author: '홍길동 주무관', text: '○ 부서별 맞춤형 업무 지침 안내 AI 챗봇 시범 구축안 수립' },
+        { id: 3, type: 'dash', author: '홍길동 주무관', text: '- 단순 법령/조례 검색 시간을 기존 5분에서 10초 이내로 대폭 수축하는 실무 특화 지능 시스템 탑재' },
+        { id: 4, type: 'dash', author: '이영희 주무관', text: '- 서무 서식 보정이 불필요하여 기안자 만족도를 대단히 높일 수 있으며 부서 내 반복 수작업을 전면 제거함' },
+        { id: 5, type: 'asterisk', author: '이영희 주무관', text: '* 참고사항: 다음 주 수요일 부서 회의 시 시제품 테스트 버전 시연 예정 및 피드백 전수 취합 공문 발송 완료' }
+      ]
+    };
+
+    // Initialize application
+    window.onload = function() {
+      lucide.createIcons();
+      initMetadataBinding();
+      renderDocument();
+      setupAutoScaling();
+      
+      // Resize observer to auto fit screen dynamically
+      window.addEventListener('resize', setupAutoScaling);
+    };
+
+    // 1화면 핏팅을 위한 스케일 엔진 구현
+    function setupAutoScaling() {
+      const frame = document.getElementById('a4-container-frame');
+      const wrapper = document.getElementById('a4-scale-wrapper');
+      const paper = document.getElementById('hwp-document');
+      
+      if (!frame || !wrapper || !paper) return;
+
+      const frameWidth = frame.clientWidth;
+      const frameHeight = frame.clientHeight;
+
+      // 210mm x 297mm의 픽셀 단위 크기 환산 (화면 기준 가로폭 약 793px, 세로폭 약 1122px)
+      const paperWidthPx = 793.7;
+      const paperHeightPx = 1122.5;
+
+      // 높이와 너비를 비교하여 스케일 비율 계산 (스크롤이 아예 안생기도록 핏)
+      const scaleX = (frameWidth - 24) / paperWidthPx;
+      const scaleY = (frameHeight - 24) / paperHeightPx;
+      const finalScale = Math.min(scaleX, scaleY, 1.2); // 최대 확대값은 1.2배 제한
+
+      wrapper.style.transform = `scale(${finalScale})`;
+      wrapper.style.width = `${paperWidthPx}px`;
+      wrapper.style.height = `${paperHeightPx}px`;
+    }
+
+    // Live update metadata in preview header
+    function initMetadataBinding() {
+      const inputDept = document.getElementById('meta-dept');
+      const inputWeek = document.getElementById('meta-week');
+      
+      const updateMeta = () => {
+        document.getElementById('doc-meta-header').innerText = inputDept.value;
+        document.getElementById('doc-main-title').innerText = `${inputWeek.value} 주간업무보고`;
+      };
+
+      inputDept.addEventListener('input', updateMeta);
+      inputWeek.addEventListener('input', updateMeta);
+      updateMeta();
+    }
+
+    // Load sample presets
+    function loadSampleData() {
+      state.records = [
+        { id: 1, type: 'headline', author: '박혜원 팀장', text: '< 부서 업무 효율 극대화 정책 시행 >' },
+        { id: 2, type: 'circle', author: '홍길동 주무관', text: '○ 데이터 시각화 기반의 공유재산 통합 관리 시스템 도입' },
+        { id: 3, type: 'dash', author: '홍길동 주무관', text: '- 두꺼운 대장 서식 대신 GIS 지도 인터페이스에 1,200여 건 공공시설 유지 현황 매핑 완료' },
+        { id: 4, type: 'dash', author: '이영희 주무관', text: '- 서무 서식 보정이 불필요하여 기안자 만족도를 대단히 높일 수 있으며 부서 내 반복 수작업을 전면 제거함' },
+        { id: 5, type: 'asterisk', author: '홍길동 주무관', text: '* 활용 방안: 상반기 실적 제출 시 최고 의사결정 시각 자료로 대단히 유용하며 주무관들의 피드백을 수용하여 개선 예정' }
+      ];
+      renderDocument();
+      showToast('샘플 데이터를 성공적으로 불러왔습니다.');
+    }
+
+    // Clear and empty working sheet
+    function clearAllData() {
+      state.records = [];
+      renderDocument();
+      showToast('초기화되었습니다. 직접 텍스트를 기입해 보세요.');
+    }
+
+    // Toast Notice engine
+    function showToast(msg) {
+      const toast = document.getElementById('notice-toast');
+      const text = document.getElementById('notice-toast-message');
+      
+      text.innerText = msg;
+      toast.classList.remove('translate-y-24', 'opacity-0');
+      
+      setTimeout(() => {
+        toast.classList.add('translate-y-24', 'opacity-0');
+      }, 3000);
+    }
+
+    // Slider range binder
+    function updateCompressLimit() {
+      const val = document.getElementById('slider-compress-limit').value;
+      state.compressLimit = parseInt(val);
+      document.getElementById('label-compress-limit').innerText = `-${val}%`;
+      renderDocument();
+    }
+
+    // Add manual record
+    function addSingleRecord() {
+      const type = document.getElementById('form-type').value;
+      const author = document.getElementById('form-member').value.trim() || '미지정 주무관';
+      const text = document.getElementById('form-text').value.trim();
+
+      if(!text) {
+        showToast('보고서 문안을 기재해 주셔야 추가가 가능합니다.');
+        return;
+      }
+
+      state.records.push({
+        id: Date.now(),
+        type: type,
+        author: author,
+        text: text
+      });
+
+      document.getElementById('form-text').value = '';
+      renderDocument();
+      showToast('항목이 추가되었습니다.');
+    }
+
+    // Smart Parsing algorithm for bulk texts
+    function parseAndAddBulkText() {
+      const textData = document.getElementById('bulk-paste-area').value.trim();
+      const author = document.getElementById('bulk-author').value;
+
+      if(!textData) {
+        showToast('붙여넣기 영역이 비어 있습니다. 텍스트를 붙여넣어 주세요.');
+        return;
+      }
+
+      const lines = textData.split('\n');
+      let addedCount = 0;
+
+      lines.forEach((line) => {
+        const trimmed = line.trim();
+        if(!trimmed) return; // Skip blank lines
+
+        let type = 'dash'; // Default to standard dash bullet
+        let processedText = trimmed;
+
+        // Detect prefix tags
+        if (trimmed.startsWith('<') && trimmed.endsWith('>')) {
+          type = 'headline';
+        } else if (trimmed.startsWith('<')) {
+          type = 'headline';
+          processedText = trimmed; // Keep as is
+        } else if (trimmed.startsWith('○') || trimmed.startsWith('o') || trimmed.startsWith('O ') || trimmed.startsWith('ㅁ') || trimmed.startsWith('■')) {
+          type = 'circle';
+          processedText = '○ ' + trimmed.replace(/^[○oOㅁ■]?\s*/, '');
+        } else if (trimmed.startsWith('-')) {
+          type = 'dash';
+          processedText = '- ' + trimmed.replace(/^[-]?\s*/, '');
+        } else if (trimmed.startsWith('*') || trimmed.startsWith('※')) {
+          type = 'asterisk';
+          processedText = '* ' + trimmed.replace(/^[*※]?\s*/, '');
+        } else {
+          processedText = '- ' + trimmed;
+        }
+
+        state.records.push({
+          id: Date.now() + Math.random(),
+          type: type,
+          author: author,
+          text: processedText
+        });
+        addedCount++;
+      });
+
+      document.getElementById('bulk-paste-area').value = '';
+      renderDocument();
+      showToast(`${addedCount}개 문단 일괄 분석 취합 성공!`);
+    }
+
+    // Delete specific paragraph item
+    function deleteRecord(id) {
+      state.records = state.records.filter(r => r.id !== id);
+      renderDocument();
+      showToast('선택한 항목이 제거되었습니다.');
+    }
+
+    // Real-time line-fitting metrics simulator
+    function renderDocument() {
+      const container = document.getElementById('doc-content-container');
+      const reportContainer = document.getElementById('fitting-report-container');
+      
+      container.innerHTML = '';
+      reportContainer.innerHTML = '';
+
+      if (state.records.length === 0) {
+        container.innerHTML = `
+          <div class="py-16 text-center text-slate-300 border-2 border-dashed border-slate-200 rounded-2xl">
+            <p class="text-4xl mb-3">📄</p>
+            <p class="text-sm">현재 입력된 주간보고 데이터가 존재하지 않습니다.</p>
+          </div>
+        `;
+        return;
+      }
+
+      state.records.forEach((record, index) => {
+        const style = HWP_MARGINS[record.type];
+        
+        // Wrap document item row
+        const row = document.createElement('div');
+        row.className = `group relative ${style.top} ${style.font} ${style.indentClass} py-0.5 rounded hover:bg-slate-50 transition-all`;
+        
+        // Dynamic letter spacing calculation simulator
+        const textLen = record.text.length;
+        
+        // 정밀한 여백 소실 보상 가중치 (circle 은 0칸 들여쓰기이므로 손실이 적음)
+        const indentCompensation = (record.type === 'asterisk') ? 3 : (record.type === 'dash' ? 2 : 0);
+        const lineMaxChars = (record.type === 'asterisk' ? 56 : 46) - indentCompensation; 
+        
+        let letterSpacingPercent = 0;
+        let statusTag = '';
+        let statusColor = '';
+        
+        // 어절 단위 개행을 위한 핵심 스타일 탑재 (keep-all, overflow-wrap)
+        let inlineStyles = 'word-break: keep-all; overflow-wrap: break-word; display: block; width: 100%;';
+
+        if (textLen > lineMaxChars) {
+          const excessRatio = (textLen - lineMaxChars) / lineMaxChars;
+          const requiredSqueeze = Math.round(excessRatio * 35); // 자간 압축률 연산 모델링
+          
+          if (requiredSqueeze <= state.compressLimit) {
+            letterSpacingPercent = -requiredSqueeze;
+            statusTag = `#${index+1} 자간 ${letterSpacingPercent}% 조율 (1줄 피팅)`;
+            statusColor = 'text-emerald-600 bg-emerald-50 border-emerald-100';
+            inlineStyles += ` letter-spacing: ${letterSpacingPercent * 0.015}em;`;
+          } else {
+            statusTag = `#${index+1} 2줄 이상 자동 개행`;
+            statusColor = 'text-sky-600 bg-sky-50 border-sky-100';
+          }
+        } else {
+          statusTag = `#${index+1} 1줄 최적 정렬 완료`;
+          statusColor = 'text-slate-500 bg-slate-50 border-slate-200';
+        }
+
+        // Add side tag metrics info
+        row.innerHTML = `
+          <!-- Delete button inside paper mock -->
+          <button onclick="deleteRecord(${record.id})" class="absolute -left-8 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-all text-rose-500 hover:text-rose-700 bg-white p-1 rounded-full shadow-md border border-slate-100 z-10" title="이 항목 삭제">
+            <i data-lucide="minus-circle" class="w-3.5 h-3.5"></i>
+          </button>
+          
+          <!-- HWP Text content matching size & style requirements -->
+          <div style="${inlineStyles}" class="${style.weight} ${style.color}" id="para-text-${index}">
+            ${record.text}
+          </div>
+          
+          <!-- Visual indicator of Author tagging in margin -->
+          <div class="absolute -right-2 top-1 opacity-0 group-hover:opacity-100 text-[9px] font-bold text-indigo-400 bg-indigo-50/80 px-1.5 py-0.5 rounded border border-indigo-100 pointer-events-none select-none">
+            ${record.author}
+          </div>
+        `;
+
+        // Apply specific requested font sizing parameters directly
+        const paraText = row.querySelector(`#para-text-${index}`);
+        if(record.type === 'headline') {
+          paraText.style.fontSize = '16pt';
+        } else if(record.type === 'circle' || record.type === 'dash') {
+          paraText.style.fontSize = '15pt';
+        } else if(record.type === 'asterisk') {
+          paraText.style.fontSize = '13pt';
+        }
+
+        container.appendChild(row);
+
+        // Add to side analysis report grid
+        const reportItem = document.createElement('span');
+        reportItem.className = `px-2 py-0.5 rounded-md border text-[10px] font-semibold ${statusColor} shrink-0`;
+        reportItem.innerText = statusTag;
+        reportContainer.appendChild(reportItem);
+      });
+
+      // Rerender icons inside dynamic objects
+      lucide.createIcons();
+      setupAutoScaling(); // 도큐먼트 갱신 시 자동 스케일 재측정
+    }
+
+    // Complete structured HWPX Binary Exporter (ZIP Packaging with valid open office specifications)
+    function exportToHWPX() {
+      if(state.records.length === 0) {
+        showToast('내보낼 데이터가 없습니다. 먼저 자료를 등록해 주세요.');
+        return;
+      }
+
+      const zip = new JSZip();
+
+      // 1. mimetype (Must be STORED / uncompressed)
+      zip.file("mimetype", "application/hwp+zip", {compression: "STORE"});
+
+      // 2. META-INF/container.xml
+      const containerXML = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<container xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+  <rootfiles>
+    <rootfile full-path="Contents/content.hpf" media-type="application/hwp+xml"/>
+  </rootfiles>
+</container>`;
+      zip.file("META-INF/container.xml", containerXML);
+
+      // 3. version.xml
+      const versionXML = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<ha:version xmlns:ha="http://www.hancom.co.kr/hwpml/2011/app" Version="1.0"/>`;
+      zip.file("version.xml", versionXML);
+
+      // 4. settings.xml
+      const settingsXML = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<ha:settings xmlns:ha="http://www.hancom.co.kr/hwpml/2011/app">
+  <ha:caret x="0" y="0" target="0"/>
+</ha:settings>`;
+      zip.file("settings.xml", settingsXML);
+
+      // 5. Contents/content.hpf
+      const contentHPF = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<opf:package xmlns:opf="http://www.idpf.org/2007/opf" version="2.0" unique-identifier="id">
+  <opf:metadata>
+    <dc:title xmlns:dc="http://purl.org/dc/elements/1.1/">Weekly Report</dc:title>
+    <dc:creator xmlns:dc="http://purl.org/dc/elements/1.1/">Smart Weekly Autocollator</dc:creator>
+  </opf:metadata>
+  <opf:manifest>
+    <opf:item id="header" href="header.xml" media-type="application/xml"/>
+    <opf:item id="section0" href="section0.xml" media-type="application/xml"/>
+  </opf:manifest>
+  <opf:spine toc="ncx">
+    <opf:itemref idref="header"/>
+    <opf:itemref idref="section0"/>
+  </opf:spine>
+</opf:package>`;
+      zip.file("Contents/content.hpf", contentHPF);
+
+      // 6. Contents/header.xml (Mapping character styles, fonts, and paragraph margins with hanging indents)
+      const headerXML = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<hh:head xmlns:hh="http://www.hancom.co.kr/hwpml/2011/head" xmlns:hc="http://www.hancom.co.kr/hwpml/2011/core" version="1.0">
+  <hh:beginNum page="1" footnote="1" endnote="1" picture="1" table="1" equation="1"/>
+  <hh:fontFaces itemCnt="3">
+    <hh:fontFace id="0" lang="HANGUL" name="HY헤드라인M"/>
+    <hh:fontFace id="1" lang="HANGUL" name="한컴 신명조"/>
+    <hh:fontFace id="2" lang="HANGUL" name="한컴 견명조"/>
+  </hh:fontFaces>
+  <hh:charProperties itemCnt="4">
+    <!-- 16pt HYHeadline Bold (headline) -->
+    <hh:charPr id="0" height="1600" textColor="0">
+      <hh:fontRef hangul="0" latin="0" hanja="0" japanese="0" other="0" symbol="0" user="0"/>
+      <hh:bold/>
+    </hh:charPr>
+    <!-- 15pt ShinMyeongjo Regular (circle) -->
+    <hh:charPr id="1" height="1500" textColor="0">
+      <hh:fontRef hangul="1" latin="1" hanja="1" japanese="1" other="1" symbol="1" user="1"/>
+    </hh:charPr>
+    <!-- 15pt ShinMyeongjo Regular (dash) -->
+    <hh:charPr id="2" height="1500" textColor="0">
+      <hh:fontRef hangul="1" latin="1" hanja="1" japanese="1" other="1" symbol="1" user="1"/>
+    </hh:charPr>
+    <!-- 13pt GyeonMyeongjo Regular (asterisk) -->
+    <hh:charPr id="3" height="1300" textColor="0">
+      <hh:fontRef hangul="2" latin="2" hanja="2" japanese="2" other="2" symbol="2" user="2"/>
+    </hh:charPr>
+  </hh:charProperties>
+  <hh:paraProperties itemCnt="4">
+    <hh:paraPr id="0" align="JUSTIFY">
+      <hh:margin top="1000" bottom="0" left="0" right="0"/>
+    </hh:paraPr>
+    <!-- circle: 0칸 들여쓰기 시작, 내어쓰기 폭 2250 (1.5칸) -->
+    <hh:paraPr id="1" align="JUSTIFY">
+      <hh:margin top="500" bottom="0" left="2250" right="0"/>
+      <hh:intent value="-2250"/>
+    </hh:paraPr>
+    <!-- dash: 2칸 들여쓰기 시작, 내어쓰기 폭 5250 (3.5칸) -->
+    <hh:paraPr id="2" align="JUSTIFY">
+      <hh:margin top="300" bottom="0" left="5250" right="0"/>
+      <hh:intent value="-2250"/>
+    </hh:paraPr>
+    <!-- asterisk: 3칸 들여쓰기 시작, 내어쓰기 폭 6750 (4.5칸) -->
+    <hh:paraPr id="3" align="JUSTIFY">
+      <hh:margin top="0" bottom="0" left="6750" right="0"/>
+      <hh:intent value="-2250"/>
+    </hh:paraPr>
+  </hh:paraProperties>
+</hh:head>`;
+      zip.file("Contents/header.xml", headerXML);
+
+      // 7. Contents/section0.xml
+      // Standard margins: Left/Right 20mm (5669), Top/Bottom 15mm (4252), Header/Footer 15mm (4252)
+      let sectionXML = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<hp:section xmlns:hp="http://www.hancom.co.kr/hwpml/2011/paragraph" xmlns:hc="http://www.hancom.co.kr/hwpml/2011/core" id="0">
+  <hp:p id="0" paraPrIDRef="0" styleIDRef="0">
+    <hp:run charPrIDRef="0">
+      <hp:secPr>
+        <hp:grid lunit="270" cunit="540"/>
+        <hp:pagePr landscape="0" width="59528" height="84188" gutterType="LEFT_ONLY"/>
+        <hp:pageMargin left="5669" right="5669" top="4252" bottom="4252" header="4252" footer="4252" gutter="0"/>
+      </hp:secPr>
+    </hp:run>
+  </hp:p>`;
+
+      state.records.forEach((record, index) => {
+        let paraPrRef = 2; // Default (dash)
+        let charPrRef = 2; // Default (dash)
+        
+        if (record.type === 'headline') { paraPrRef = 0; charPrRef = 0; }
+        else if (record.type === 'circle') { paraPrRef = 1; charPrRef = 1; }
+        else if (record.type === 'asterisk') { paraPrRef = 3; charPrRef = 3; }
+
+        const sanitizedText = record.text
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;');
+
+        sectionXML += `
+  <hp:p id="${index + 10}" paraPrIDRef="${paraPrRef}" styleIDRef="0">
+    <hp:run charPrIDRef="${charPrRef}">
+      <hp:t>${sanitizedText}</hp:t>
+    </hp:run>
+  </hp:p>`;
+      });
+
+      sectionXML += `\n</hp:section>`;
+      zip.file("Contents/section0.xml", sectionXML);
+
+      // Trigger standard async compression download
+      zip.generateAsync({type: "blob"}).then(function(content) {
+        const url = window.URL.createObjectURL(content);
+        const a = document.createElement('a');
+        a.href = url;
+        const weekClean = document.getElementById('meta-week').value.replace(/\s+/g, '_');
+        a.download = `주간업무보고_${weekClean}.hwpx`;
+        a.click();
+        window.URL.revokeObjectURL(url);
+        showToast('HWPX 패키지 다운로드가 완료되었습니다.');
+      });
+    }
+
+    // HML Standard single XML export
+    function exportToHML() {
+      if(state.records.length === 0) {
+        showToast('내보낼 데이터가 없습니다.');
+        return;
+      }
+
+      let hmlContent = `<?xml version="1.0" encoding="utf-8"?>
+<HWPML Version="2.1" ExtVer="1.0">
+  <HEAD>
+    <FONTLIST>
+      <FONT Hangul="HY헤드라인M" Latin="HY헤드라인M" Hanja="HY헤드라인M"/>
+      <FONT Hangul="한컴 신명조" Latin="한컴 신명조" Hanja="한컴 신명조"/>
+      <FONT Hangul="한컴 견명조" Latin="한컴 견명조" Hanja="한컴 견명조"/>
+    </FONTLIST>
+    <CHARSHAPE itemCnt="4">
+      <CHARPR Id="0" Height="1600" Bold="1" FontHangul="0"/>
+      <CHARPR Id="1" Height="1500" Bold="0" FontHangul="1"/>
+      <CHARPR Id="2" Height="1500" Bold="0" FontHangul="1"/>
+      <CHARPR Id="3" Height="1300" Bold="0" FontHangul="2"/>
+    </CHARSHAPE>
+    <PARASHAPE itemCnt="4">
+      <PARAPR Id="0" TopMargin="1000"/>
+      <PARAPR Id="1" TopMargin="500" LeftMargin="2250" FirstGap="-2250"/>
+      <PARAPR Id="2" TopMargin="300" LeftMargin="5250" FirstGap="-2250"/>
+      <PARAPR Id="3" TopMargin="0" LeftMargin="6750" FirstGap="-2250"/>
+    </PARASHAPE>
+  </HEAD>
+  <BODY>
+    <SECTION Id="0">`;
+
+      state.records.forEach((record) => {
+        let charId = 2;
+        let paraId = 2;
+        if(record.type === 'headline') { charId = 0; paraId = 0; }
+        else if(record.type === 'circle') { charId = 1; paraId = 1; }
+        else if(record.type === 'asterisk') { charId = 3; paraId = 3; }
+
+        const cleanText = record.text
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;');
+
+        hmlContent += `
+      <P ParaShape="${paraId}" CharShape="${charId}">
+        <TEXT>${cleanText}</TEXT>
+      </P>`;
+      });
+
+      hmlContent += `
+    </SECTION>
+  </BODY>
+</HWPML>`;
+
+      const blob = new Blob([hmlContent], {type: 'text/xml'});
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const weekClean = document.getElementById('meta-week').value.replace(/\s+/g, '_');
+      a.download = `주간업무보고_${weekClean}.hml`;
+      a.click();
+      window.URL.revokeObjectURL(url);
+      showToast('개방형 HML 파일 저장이 완수되었습니다.');
+    }
+
+    // Formatted clipboard engine
+    function copyToClipboardFormatted() {
+      if(state.records.length === 0) {
+        showToast('복사할 데이터가 존재하지 않습니다.');
+        return;
+      }
+
+      let htmlString = `<div style="font-family: 'Batang', 'BatangChe', 'Malgun Gothic', serif; line-height: 1.6;">`;
+      
+      state.records.forEach((record) => {
+        let fontSize = '15pt';
+        let fontWeight = 'normal';
+        let fontFamily = "'Shin Myeongjo', 'Batang', serif";
+        let marginTop = '3pt';
+        let leftMargin = '0px';
+        let textIndent = '0px';
+
+        if(record.type === 'headline') {
+          fontSize = '16pt';
+          fontWeight = 'bold';
+          fontFamily = "'HY헤드라인M', 'HYHeadLine', sans-serif";
+          marginTop = '10pt';
+        } else if(record.type === 'circle') {
+          fontSize = '15pt';
+          fontFamily = "'Shin Myeongjo', 'Batang', serif";
+          marginTop = '5pt';
+          leftMargin = '1.5em';
+          textIndent = '-1.5em';
+        } else if(record.type === 'dash') {
+          fontSize = '15pt';
+          fontFamily = "'Shin Myeongjo', 'Batang', serif";
+          marginTop = '3pt';
+          leftMargin = '3.5em';
+          textIndent = '-1.5em';
+        } else if(record.type === 'asterisk') {
+          fontSize = '13pt';
+          fontFamily = "'Gyeon Myeongjo', 'Batang', serif";
+          marginTop = '0pt';
+          leftMargin = '4.5em';
+          textIndent = '-1.5em';
+        }
+
+        // word-break: keep-all 스타일 추가 주입하여 한글에 붙여넣었을 때도 동일 레이아웃 유지 유도
+        htmlString += `<p style="font-size: ${fontSize}; font-family: ${fontFamily}; font-weight: ${fontWeight}; margin-top: ${marginTop}; margin-bottom: 0px; margin-left: ${leftMargin}; text-indent: ${textIndent}; word-break: keep-all; overflow-wrap: break-word;">${record.text}</p>`;
+      });
+
+      htmlString += `</div>`;
+
+      const blobHtml = new Blob([htmlString], { type: 'text/html' });
+      const plainText = state.records.map(r => r.text).join('\n');
+      const blobText = new Blob([plainText], { type: 'text/plain' });
+
+      const data = [new ClipboardItem({
+        'text/html': blobHtml,
+        'text/plain': blobText
+      })];
+
+      navigator.clipboard.write(data).then(() => {
+        showToast('내어쓰기 및 줄바꿈 서식이 보존된 한글 맞춤형 복사가 완수되었습니다!');
+      }).catch(err => {
+        const textarea = document.createElement('textarea');
+        textarea.value = plainText;
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+        showToast('안전 텍스트 클립보드 복사 완료.');
+      });
+    }
+  </script>
+</body>
+</html>
